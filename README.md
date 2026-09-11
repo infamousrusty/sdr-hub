@@ -86,7 +86,7 @@ Video [here](https://www.youtube.com/watch?v=YzQ2N0VkKvE), thanks to **Tech Mind
 
 ## Community
 
-Join our [discord server](https://discord.gg/f2cqeMh6Dh) to get help, share ideas, or contribute.
+Join our [discord server](https://discord.gg/6ubfZkmc2C) to get help, share ideas, or contribute.
 
 ## Wiki
 
@@ -186,13 +186,12 @@ When contributing to this fork or to the HAOS integration, please ensure that an
 
 # Donations
 
-If you enjoy this project and want to thanks, please use follow link:
+If you enjoy this project and want to support ongoing maintenance:
 
-- [PayPal](https://www.paypal.com/donate/?hosted_button_id=6JQ963AU688QN)
-
-- [Revolut](https://revolut.me/borysm2b)
-
-- BTC address: 18UDYg9mu26K2E3U479eMvMZXPDpswR7Jn
+- GitHub: [infamousrusty](https://github.com/infamousrusty)
+- Ko‑fi: https://ko-fi.com/infamousrusty
+- Revolut: https://revolut.me/rustynuts
+- BTC: bc1qdh860fvt3uz2yjwwtrr3ny36h3m4374x49509e
 
 # License
 
