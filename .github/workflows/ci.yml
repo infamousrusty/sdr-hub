@@ -9,6 +9,8 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout
@@ -30,4 +32,4 @@ jobs:
 
       - name: Build container image (smoke test, non-blocking)
         run: |
-          docker build -t infamousrusty/sdr-hub-ci:latest . || true
+          docker build -t englishrusty/sdr-hub-ci:latest . || true
