@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, devel ]
+  pull_request:
+    branches: [ master, devel ]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile with hadolint (non-blocking)
+        run: |
+          docker run --rm -i hadolint/hadolint < Dockerfile || true
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts (non-blocking)
+        run: |
+          find entrypoint scripts -name "*.sh" -print0 2>/dev/null \
+            | xargs -0 -r shellcheck || true
+
+      - name: Build container image (smoke test, non-blocking)
+        run: |
+          docker build -t englishrusty/sdr-hub-ci:latest . || true

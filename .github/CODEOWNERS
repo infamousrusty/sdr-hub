@@ -1,0 +1,8 @@
+# CODEOWNERS
+
+* @infamousrusty
+
+# Optional: add more granular ownership for specific paths
+# config/ @infamousrusty
+# entrypoint/ @infamousrusty
+# scripts/ @infamousrusty
