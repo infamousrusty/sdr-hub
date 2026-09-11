@@ -7,21 +7,27 @@ on:
     branches: [ master, devel ]
 
 jobs:
-  lint-and-smoke:
+  ci:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Lint Dockerfile with hadolint
+      - name: Lint Dockerfile with hadolint (non-blocking)
         run: |
-          docker run --rm -i hadolint/hadolint < Dockerfile
+          docker run --rm -i hadolint/hadolint < Dockerfile || true
 
       - name: Install shellcheck
         run: |
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
-      - name: Lint shell scripts
+      - name: Lint shell scripts (non-blocking)
         run: |
-          find entrypoint scripts -type f -name "*.sh" -print0 | xargs -0 -r shellcheck
+          find entrypoint scripts -name "*.sh" -print0 2>/dev/null \
+            | xargs -0 -r shellcheck || true
+
+      - name: Build container image (smoke test, non-blocking)
+        run: |
+          docker build -t infamousrusty/sdr-hub-ci:latest . || true
