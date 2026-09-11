@@ -46,6 +46,12 @@ This project is a `C++` based SDR scanner designed to detect, record, and analyz
 
 Very powerful **web panel** to explore transmissions, spectrograms and configure sdr device.
 
+## Fork and Home Assistant OS integration
+
+This repository is a fork of the upstream project [shajen/sdr-hub](https://github.com/shajen/sdr-hub), maintained by [infamousrusty](https://github.com/infamousrusty). It preserves the original architecture and GNU GPLv3 licensing while also serving as the upstream container image for the SDR-Hub Home Assistant OS app published at [infamousrusty/sdr-hub-haos](https://github.com/infamousrusty/sdr-hub-haos).
+
+The HAOS app wraps this project and exposes SDR-Hub inside Home Assistant OS using USB passthrough, Ingress, and MQTT, but does not change the core SDR-hub functionality. All modifications in this fork and its HAOS integration remain licensed under the GNU GPLv3, consistent with the upstream project.
+
 # Features
 
 ## Multi-Band Recording
@@ -109,15 +115,19 @@ If you do not have `docker` installed, follow the instructions [here](https://do
 
 ## Run
 
+Using the upstream image:
+
 ```
 docker run --rm -it --env TZ=Europe/Warsaw -p 8000:80 -v ./data:/app/data -v ./log:/var/log/sdr --device /dev/bus/usb:/dev/bus/usb shajen/sdr-hub
 ```
 
-where `TZ=Europe/Warsaw` is your time zone
+where `TZ=Europe/Warsaw` is your time zone.
 
 All collected data and config will be permanently saved in the local `data` directory.
 
 All logs will be permanently saved in the local `log` directory.
+
+If you build and publish an image from this fork (for example, using `docker build` and pushing as `infamousrusty/sdr-hub` or to `ghcr.io/infamousrusty/sdr-hub`), you can substitute that image name in the command above. Any such image must continue to be distributed under the GPLv3 license (see License section).
 
 ## Web panel
 
@@ -129,6 +139,8 @@ Default web panel address is [http://127.0.0.1:8000/](http://127.0.0.1:8000/), d
 
 To update to the latest version just pull docker image `docker pull shajen/sdr-hub` and run again.
 
+If you use a forked image (for example, `infamousrusty/sdr-hub`), rebuild and pull that image instead.
+
 ## Build from sources
 
 Clone repository and run:
@@ -139,6 +151,9 @@ export SDR_SCANNER_IMAGE=shajen/sdr-scanner:latest # enter the selected image
 
 docker build -t shajen/sdr-hub --build-arg SDR_MONITOR_IMAGE --build-arg SDR_SCANNER_IMAGE .
 ```
+
+You may change the `-t` tag to point at your own registry (e.g. `infamousrusty/sdr-hub` or `ghcr.io/infamousrusty/sdr-hub`) when redistributing this fork, provided you comply with the GPLv3 license.
+
 ## Debug
 
 All logs are stored in the `/var/log/sdr/` directory in the docker container and can be downloaded [here](http://127.0.0.1:8000/sdr/logs/).
@@ -153,6 +168,8 @@ It's best to attach the ``logs and data`` from [here](http://127.0.0.1:8000/sdr/
 
 This software may receive and record radio signals. Use it legally — the authors take no responsibility for misuse or unlawful recording.
 
+This applies equally to the upstream project and to this fork and any derived images (including the HAOS integration). You are responsible for ensuring your use complies with local laws and regulations.
+
 # Contributing
 
 In general don't be afraid to send pull request. Use the "fork-and-pull" Git workflow.
@@ -164,6 +181,8 @@ In general don't be afraid to send pull request. Use the "fork-and-pull" Git wor
 5. Submit a **Pull request** so that we can review your changes
 
 NOTE: Be sure to merge the **latest** from **upstream** before making a pull request!
+
+When contributing to this fork or to the HAOS integration, please ensure that any code you submit is compatible with the GPLv3 license and that you do not introduce proprietary components that would violate the upstream licensing.
 
 # Donations
 
@@ -180,3 +199,5 @@ If you enjoy this project and want to thanks, please use follow link:
 [![License](https://img.shields.io/:license-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl.html)
 
 - *[GPLv3 license](https://www.gnu.org/licenses/gpl.html)*
+
+This fork, the upstream project, and the Home Assistant OS integration are all distributed under the terms of the GNU General Public License version 3 (GPLv3). By using, modifying, or redistributing this code or any derived container images, you agree to comply with the GPLv3, including making source code available and preserving the license when distributing binaries or images.
