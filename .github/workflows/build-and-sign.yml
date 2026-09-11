@@ -9,10 +9,11 @@ on:
     types: [published]
 
 env:
-  IMAGE: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}
+  IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}
+  IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
   PLATFORMS: linux/arm/v7,linux/arm64/v8,linux/amd64
-  CACHE_FROM: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}:cache
-  CACHE_TO: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}:cache,mode=max
+  CACHE_FROM_DOCKER: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
+  CACHE_TO_DOCKER: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
 
 jobs:
   build-and-sign:
@@ -20,6 +21,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -34,10 +36,24 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to Docker Hub
+        id: login_docker
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Warn if Docker Hub login failed
+        if: steps.login_docker.outcome == 'failure'
+        run: |
+          echo "::warning::Docker Hub login failed; Docker Hub pushes will be skipped in this run."
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update .sdr_versions
         if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
@@ -60,10 +76,26 @@ jobs:
             SDR_SCANNER_IMAGE
           context: .
           load: true
-          tags: ${{ env.IMAGE }}:test
-          cache-from: ${{ env.CACHE_FROM }}
+          tags: ${{ env.IMAGE_DOCKER }}:test
+          cache-from: ${{ env.CACHE_FROM_DOCKER }}
 
-      - name: Push development image
+      - name: Push development image to Docker Hub
+        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) && steps.login_docker.outcome == 'success' }}
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE
+            SDR_SCANNER_IMAGE
+          context: .
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          tags: ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
+          cache-from: ${{ env.CACHE_FROM_DOCKER }}
+          cache-to: ${{ env.CACHE_TO_DOCKER }}
+
+      - name: Push development image to GHCR
         if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
         uses: docker/build-push-action@v6
         with:
@@ -75,11 +107,27 @@ jobs:
           context: .
           push: true
           platforms: ${{ env.PLATFORMS }}
-          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
-          cache-from: ${{ env.CACHE_FROM }}
-          cache-to: ${{ env.CACHE_TO }}
+          tags: ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
 
-      - name: Push release image
+      - name: Push release image to Docker Hub
+        if: ${{ github.ref_type == 'tag' && steps.login_docker.outcome == 'success' }}
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE
+            SDR_SCANNER_IMAGE
+          context: .
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          tags: |
+            ${{ env.IMAGE_DOCKER }}:latest
+            ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
+          cache-from: ${{ env.CACHE_FROM_DOCKER }}
+          cache-to: ${{ env.CACHE_TO_DOCKER }}
+
+      - name: Push release image to GHCR
         if: ${{ github.ref_type == 'tag' }}
         uses: docker/build-push-action@v6
         with:
@@ -92,17 +140,19 @@ jobs:
           push: true
           platforms: ${{ env.PLATFORMS }}
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.ref_name }}
-          cache-from: ${{ env.CACHE_FROM }}
-          cache-to: ${{ env.CACHE_TO }}
+            ${{ env.IMAGE_GHCR }}:latest
+            ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Sign release image with Cosign
+      - name: Sign release images with Cosign
         if: ${{ github.ref_type == 'tag' }}
         env:
           COSIGN_EXPERIMENTAL: "true"
         run: |
-          cosign sign --yes ${{ env.IMAGE }}:${{ github.ref_name }}
+          cosign sign --yes ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
+          if [ "${{ steps.login_docker.outcome }}" = "success" ]; then
+            cosign sign --yes ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
+          else
+            echo "::warning::Docker Hub login failed earlier; Docker Hub image will not be signed in this run."
