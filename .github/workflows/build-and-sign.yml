@@ -1,0 +1,108 @@
+name: Build and Sign SDR-Hub Images
+
+on:
+  push:
+    branches: [master, devel]
+  pull_request:
+    branches: [master, devel]
+  release:
+    types: [published]
+
+env:
+  IMAGE: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}
+  PLATFORMS: linux/arm/v7,linux/arm64/v8,linux/amd64
+  CACHE_FROM: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}:cache
+  CACHE_TO: type=registry,ref=${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}:cache,mode=max
+
+jobs:
+  build-and-sign:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          cache-image: false
+          platforms: ${{ env.PLATFORMS }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Update .sdr_versions
+        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
+        run: |
+          sed -i .sdr_versions -e "s/sdr-monitor:.*/sdr-monitor:${{ github.ref_name }}/g"
+          sed -i .sdr_versions -e "s/sdr-scanner:.*/sdr-scanner:${{ github.ref_name }}/g"
+
+      - name: Load .sdr_versions file
+        uses: aarcangeli/load-dotenv@v1
+        with:
+          filenames: .sdr_versions
+
+      - name: Build multi-arch image (test)
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE
+            SDR_SCANNER_IMAGE
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:test
+          cache-from: ${{ env.CACHE_FROM }}
+
+      - name: Push development image
+        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE
+            SDR_SCANNER_IMAGE
+          context: .
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+          cache-from: ${{ env.CACHE_FROM }}
+          cache-to: ${{ env.CACHE_TO }}
+
+      - name: Push release image
+        if: ${{ github.ref_type == 'tag' }}
+        uses: docker/build-push-action@v6
+        with:
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE
+            SDR_SCANNER_IMAGE
+          context: .
+          push: true
+          platforms: ${{ env.PLATFORMS }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.ref_name }}
+          cache-from: ${{ env.CACHE_FROM }}
+          cache-to: ${{ env.CACHE_TO }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Sign release image with Cosign
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          cosign sign --yes ${{ env.IMAGE }}:${{ github.ref_name }}
