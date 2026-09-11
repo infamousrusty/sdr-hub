@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, devel ]
+  pull_request:
+    branches: [ master, devel ]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Lint Dockerfile with hadolint
+        run: |
+          docker run --rm -i hadolint/hadolint < Dockerfile
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          find entrypoint scripts -name "*.sh" -print0 | xargs -0 -r shellcheck
+
+      - name: Build multi-arch container image (smoke test)
+        run: |
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            -t infamousrusty/sdr-hub-ci:latest .
