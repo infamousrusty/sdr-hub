@@ -12,8 +12,6 @@ env:
   IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}
   IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
   PLATFORMS: linux/arm/v7,linux/arm64/v8,linux/amd64
-  CACHE_FROM_DOCKER: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
-  CACHE_TO_DOCKER: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
 
 jobs:
   build-and-sign:
@@ -77,7 +75,7 @@ jobs:
           context: .
           load: true
           tags: ${{ env.IMAGE_DOCKER }}:test
-          cache-from: ${{ env.CACHE_FROM_DOCKER }}
+          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
 
       - name: Push development image to Docker Hub
         if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) && steps.login_docker.outcome == 'success' }}
@@ -92,8 +90,8 @@ jobs:
           push: true
           platforms: ${{ env.PLATFORMS }}
           tags: ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
-          cache-from: ${{ env.CACHE_FROM_DOCKER }}
-          cache-to: ${{ env.CACHE_TO_DOCKER }}
+          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
+          cache-to: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
 
       - name: Push development image to GHCR
         if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
@@ -124,8 +122,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_DOCKER }}:latest
             ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
-          cache-from: ${{ env.CACHE_FROM_DOCKER }}
-          cache-to: ${{ env.CACHE_TO_DOCKER }}
+          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
+          cache-to: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
 
       - name: Push release image to GHCR
         if: ${{ github.ref_type == 'tag' }}
