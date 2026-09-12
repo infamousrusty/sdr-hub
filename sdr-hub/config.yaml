@@ -25,4 +25,4 @@ options:
 schema:
   log_level: list(debug|info|warning|error)
   mqtt_host: str?
-image: ghcr.io/infamousrusty/{arch}-sdr-hub
+image: ghcr.io/infamousrusty/sdr-hub
