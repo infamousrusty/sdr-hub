@@ -43,6 +43,4 @@ schema:
       sample_rate: int?
       gain: str?
       ppm_error: int?
-image: ghcr.io/infamousrusty/sdr-hub
-command:
-  - /init
+image: ghcr.io/infamousrusty/sdr-hub:latest
