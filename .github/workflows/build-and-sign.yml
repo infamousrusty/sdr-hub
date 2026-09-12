@@ -30,13 +30,14 @@ env:
 
 jobs:
   build-and-sign:
-    name: Build, Publish, and Sign SDR-Hub
+    name: Build, Publish, Verify, and Sign SDR-Hub
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
       packages: write
       id-token: write
+      attestations: write
 
     steps:
       - name: Check out repository
@@ -62,6 +63,7 @@ jobs:
             {
               echo "version=${VERSION}"
               echo "is_release=true"
+              echo "primary_tag=${IMAGE_GHCR}:${VERSION}"
               echo "tags<<EOF"
               echo "${IMAGE_GHCR}:${VERSION}"
               echo "${IMAGE_GHCR}:v${VERSION}"
@@ -73,9 +75,10 @@ jobs:
             {
               echo "version=master"
               echo "is_release=false"
+              echo "primary_tag=${IMAGE_GHCR}:latest"
               echo "tags<<EOF"
-              echo "${IMAGE_GHCR}:master"
               echo "${IMAGE_GHCR}:latest"
+              echo "${IMAGE_GHCR}:master"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
 
@@ -83,6 +86,7 @@ jobs:
             {
               echo "version=${GITHUB_REF_NAME}"
               echo "is_release=false"
+              echo "primary_tag=${IMAGE_GHCR}:${GITHUB_REF_NAME}"
               echo "tags<<EOF"
               echo "${IMAGE_GHCR}:${GITHUB_REF_NAME}"
               echo "EOF"
@@ -139,29 +143,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify published manifest
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          IMAGE_REF="${IMAGE_GHCR}:${{ steps.tags.outputs.version }}"
-
-          if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
-            IMAGE_REF="${IMAGE_GHCR}:latest"
-          fi
-
-          docker buildx imagetools inspect "${IMAGE_REF}"
-
-          MANIFEST="$(docker buildx imagetools inspect "${IMAGE_REF}")"
-          grep -q "linux/amd64" <<< "${MANIFEST}"
-          grep -q "linux/arm64" <<< "${MANIFEST}"
-
-      - name: Install Cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3.5.0
-
-      - name: Sign published GHCR image
+      - name: Confirm Buildx returned an image index digest
+        id: digest
         if: github.event_name != 'pull_request'
         env:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
@@ -174,4 +157,78 @@ jobs:
             exit 1
           fi
 
-          cosign sign --yes "${IMAGE_GHCR}@${IMAGE_DIGEST}"
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "::error::Unexpected Buildx digest format: ${IMAGE_DIGEST}"
+            exit 1
+          fi
+
+          echo "image=${IMAGE_GHCR}@${IMAGE_DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${IMAGE_DIGEST}" >> "${GITHUB_OUTPUT}"
+
+      - name: Verify published multi-architecture manifest
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_REF: ${{ steps.digest.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Inspecting published image index: ${IMAGE_REF}"
+          MANIFEST="$(docker buildx imagetools inspect "${IMAGE_REF}")"
+
+          echo "${MANIFEST}"
+
+          grep -q "linux/amd64" <<< "${MANIFEST}"
+          grep -q "linux/arm64" <<< "${MANIFEST}"
+
+      - name: Verify primary image tag resolves to published digest
+        if: github.event_name != 'pull_request'
+        env:
+          PRIMARY_TAG: ${{ steps.tags.outputs.primary_tag }}
+          EXPECTED_DIGEST: ${{ steps.digest.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG_DIGEST="$(
+            docker buildx imagetools inspect \
+              --format '{{.Manifest.Digest}}' \
+              "${PRIMARY_TAG}"
+          )"
+
+          echo "Primary tag: ${PRIMARY_TAG}"
+          echo "Tag digest:  ${TAG_DIGEST}"
+          echo "Build digest: ${EXPECTED_DIGEST}"
+
+          if [[ "${TAG_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
+            echo "::error::Primary tag does not resolve to the image index just built."
+            exit 1
+          fi
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Sign published GHCR image index
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_REF: ${{ steps.digest.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Signing immutable image index: ${IMAGE_REF}"
+          cosign sign --yes "${IMAGE_REF}"
+
+      - name: Verify Cosign signature
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_REF: ${{ steps.digest.outputs.image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/build-and-sign.yml@.*" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE_REF}"
