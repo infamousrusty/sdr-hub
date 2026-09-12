@@ -2,24 +2,35 @@ name: Build and Sign SDR-Hub Images
 
 on:
   push:
-    branches: [master, devel]
+    branches:
+      - master
+      - devel
+    tags:
+      - "v*.*.*"
+      - "[0-9]*.[0-9]*.[0-9]*"
   pull_request:
-    branches: [master, devel]
+    branches:
+      - master
+      - devel
   release:
-    types: [published]
+    types:
+      - published
+  workflow_dispatch:
 
 env:
-  IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/${{ github.event.repository.name }}
-  IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
-  PLATFORMS: linux/arm/v7,linux/arm64/v8,linux/amd64
+  IMAGE_NAME: sdr-hub
+  IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/sdr-hub
+  PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
   build-and-sign:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
       packages: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -27,135 +38,201 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
-          cache-image: false
-          platforms: ${{ env.PLATFORMS }}
+          platforms: arm64,amd64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Derive image metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REF_NAME="${GITHUB_REF_NAME}"
+          VERSION="${REF_NAME#v}"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#v}"
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" || "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            {
+              echo "version=${VERSION}"
+              echo "release=true"
+              echo "ghcr_tags<<EOF"
+              echo "${IMAGE_GHCR}:${VERSION}"
+              echo "${IMAGE_GHCR}:v${VERSION}"
+              echo "${IMAGE_GHCR}:latest"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_REF_NAME}" == "master" ]]; then
+            {
+              echo "version=edge"
+              echo "release=false"
+              echo "ghcr_tags<<EOF"
+              echo "${IMAGE_GHCR}:latest"
+              echo "${IMAGE_GHCR}:master"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          else
+            {
+              echo "version=${REF_NAME}"
+              echo "release=false"
+              echo "ghcr_tags<<EOF"
+              echo "${IMAGE_GHCR}:${REF_NAME}"
+              echo "EOF"
+            } >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Load SDR component versions
+        uses: aarcangeli/load-dotenv@v1
+        with:
+          filenames: .sdr_versions
+
+      - name: Update development component versions
+        if: github.ref_type == 'branch' && (github.ref_name == 'master' || github.ref_name == 'devel')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sed -i \
+            -e "s/^sdr-monitor:.*/sdr-monitor:${GITHUB_REF_NAME}/" \
+            -e "s/^sdr-scanner:.*/sdr-scanner:${GITHUB_REF_NAME}/" \
+            .sdr_versions
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build test image for pull requests
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          platforms: linux/amd64
+          push: false
+          tags: sdr-hub:pr-test
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE=${{ env.SDR_MONITOR_IMAGE }}
+            SDR_SCANNER_IMAGE=${{ env.SDR_SCANNER_IMAGE }}
+
+      - name: Build and push multi-architecture GHCR image
+        id: build_ghcr
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.meta.outputs.ghcr_tags }}
+          provenance: false
+          sbom: false
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            SDR_MONITOR_IMAGE=${{ env.SDR_MONITOR_IMAGE }}
+            SDR_SCANNER_IMAGE=${{ env.SDR_SCANNER_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify GHCR image manifest
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          IMAGE_REF="${IMAGE_GHCR}:${{ steps.meta.outputs.version }}"
+
+          if [[ "${{ steps.meta.outputs.release }}" != "true" ]]; then
+            if [[ "${GITHUB_REF_NAME}" == "master" ]]; then
+              IMAGE_REF="${IMAGE_GHCR}:latest"
+            else
+              IMAGE_REF="${IMAGE_GHCR}:${GITHUB_REF_NAME}"
+            fi
+          fi
+
+          docker buildx imagetools inspect "${IMAGE_REF}"
+
+          MANIFEST="$(docker buildx imagetools inspect "${IMAGE_REF}")"
+
+          grep -q "linux/amd64" <<< "${MANIFEST}"
+          grep -q "linux/arm64" <<< "${MANIFEST}"
+
+      - name: Install Cosign
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3.5.0
+
+      - name: Sign published GHCR image index
+        if: github.event_name != 'pull_request'
+        env:
+          DIGEST: ${{ steps.build_ghcr.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DIGEST}" ]]; then
+            echo "::error::Buildx did not return an image digest."
+            exit 1
+          fi
+
+          cosign sign --yes "${IMAGE_GHCR}@${DIGEST}"
+
+      - name: Log in to Docker Hub
         id: login_docker
+        if: github.event_name != 'pull_request' && secrets.DOCKER_HUB_USERNAME != '' && secrets.DOCKER_HUB_ACCESS_TOKEN != ''
         continue-on-error: true
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Warn if Docker Hub login failed
-        if: steps.login_docker.outcome == 'failure'
+      - name: Warn when Docker Hub mirror is unavailable
+        if: github.event_name != 'pull_request' && steps.login_docker.outcome == 'failure'
+        shell: bash
         run: |
-          echo "::warning::Docker Hub login failed; Docker Hub pushes will be skipped in this run."
+          echo "::warning::Docker Hub login failed; GHCR was still built, pushed, and signed."
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Update .sdr_versions
-        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
-        run: |
-          sed -i .sdr_versions -e "s/sdr-monitor:.*/sdr-monitor:${{ github.ref_name }}/g"
-          sed -i .sdr_versions -e "s/sdr-scanner:.*/sdr-scanner:${{ github.ref_name }}/g"
-
-      - name: Load .sdr_versions file
-        uses: aarcangeli/load-dotenv@v1
-        with:
-          filenames: .sdr_versions
-
-      - name: Build multi-arch image (test)
-        uses: docker/build-push-action@v6
-        with:
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            SDR_MONITOR_IMAGE
-            SDR_SCANNER_IMAGE
-          context: .
-          load: true
-          tags: ${{ env.IMAGE_DOCKER }}:test
-          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
-
-      - name: Push development image to Docker Hub
-        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) && steps.login_docker.outcome == 'success' }}
-        uses: docker/build-push-action@v6
-        with:
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            SDR_MONITOR_IMAGE
-            SDR_SCANNER_IMAGE
-          context: .
-          push: true
-          platforms: ${{ env.PLATFORMS }}
-          tags: ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
-          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
-          cache-to: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
-
-      - name: Push development image to GHCR
-        if: ${{ github.ref_type == 'branch' && contains(vars.CI_BRANCH, github.ref_name) }}
-        uses: docker/build-push-action@v6
-        with:
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            SDR_MONITOR_IMAGE
-            SDR_SCANNER_IMAGE
-          context: .
-          push: true
-          platforms: ${{ env.PLATFORMS }}
-          tags: ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
-
-      - name: Push release image to Docker Hub
-        if: ${{ github.ref_type == 'tag' && steps.login_docker.outcome == 'success' }}
-        uses: docker/build-push-action@v6
-        with:
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            SDR_MONITOR_IMAGE
-            SDR_SCANNER_IMAGE
-          context: .
-          push: true
-          platforms: ${{ env.PLATFORMS }}
-          tags: |
-            ${{ env.IMAGE_DOCKER }}:latest
-            ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
-          cache-from: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache
-          cache-to: type=registry,ref=${{ env.IMAGE_DOCKER }}:cache,mode=max
-
-      - name: Push release image to GHCR
-        if: ${{ github.ref_type == 'tag' }}
-        uses: docker/build-push-action@v6
-        with:
-          build-args: |
-            VERSION=${{ github.ref_name }}
-            COMMIT=${{ github.sha }}
-            SDR_MONITOR_IMAGE
-            SDR_SCANNER_IMAGE
-          context: .
-          push: true
-          platforms: ${{ env.PLATFORMS }}
-          tags: |
-            ${{ env.IMAGE_GHCR }}:latest
-            ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.5.0
-
-      - name: Sign images
+      - name: Mirror release image to Docker Hub
+        if: github.event_name != 'pull_request' && steps.meta.outputs.release == 'true' && steps.login_docker.outcome == 'success'
         env:
-          IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/sdr-hub
           IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/sdr-hub
-          TAG: 1.0.2
-         run: |
-           set -euo pipefail
+        shell: bash
+        run: |
+          set -euo pipefail
 
-           cosign sign --yes "${IMAGE_GHCR}:${TAG}"
+          VERSION="${{ steps.meta.outputs.version }}"
 
-           if [ "${{ steps.dockerhub_login.outcome }}" =  "success" ]; then
-           cosign sign --yes "${IMAGE_DOCKER}:${TAG}"
-           else
-           echo "::warning::Docker Hub login failed earlier; Docker Hub image will not be signed in this run."
-           fi
+          docker buildx imagetools create \
+            --tag "${IMAGE_DOCKER}:${VERSION}" \
+            --tag "${IMAGE_DOCKER}:v${VERSION}" \
+            --tag "${IMAGE_DOCKER}:latest" \
+            "${IMAGE_GHCR}@${{ steps.build_ghcr.outputs.digest }}"
+
+      - name: Sign Docker Hub release image index
+        if: github.event_name != 'pull_request' && steps.meta.outputs.release == 'true' && steps.login_docker.outcome == 'success'
+        env:
+          IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/sdr-hub
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ steps.meta.outputs.version }}"
+          DIGEST="$(docker buildx imagetools inspect "${IMAGE_DOCKER}:${VERSION}" --format '{{.Manifest.Digest}}')"
+
+          if [[ -z "${DIGEST}" ]]; then
+            echo "::error::Could not resolve Docker Hub image digest."
+            exit 1
+          fi
+
+          cosign sign --yes "${IMAGE_DOCKER}@${DIGEST}"
