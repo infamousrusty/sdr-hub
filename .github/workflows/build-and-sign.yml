@@ -144,13 +144,18 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Sign release images with Cosign
-        if: ${{ github.ref_type == 'tag' }}
-        env:
-          COSIGN_EXPERIMENTAL: "true"
-        run: |
-          cosign sign --yes ${{ env.IMAGE_GHCR }}:${{ github.ref_name }}
-          if [ "${{ steps.login_docker.outcome }}" = "success" ]; then
-            cosign sign --yes ${{ env.IMAGE_DOCKER }}:${{ github.ref_name }}
-          else
-            echo "::warning::Docker Hub login failed earlier; Docker Hub image will not be signed in this run."
+      - name: Sign images
+  env:
+    IMAGE_GHCR: ghcr.io/${{ github.repository_owner }}/sdr-hub
+    IMAGE_DOCKER: ${{ secrets.DOCKER_HUB_USERNAME }}/sdr-hub
+    TAG: 1.0.2
+  run: |
+    set -euo pipefail
+
+    cosign sign --yes "${IMAGE_GHCR}:${TAG}"
+
+    if [ "${{ steps.dockerhub_login.outcome }}" = "success" ]; then
+      cosign sign --yes "${IMAGE_DOCKER}:${TAG}"
+    else
+      echo "::warning::Docker Hub login failed earlier; Docker Hub image will not be signed in this run."
+    fi
