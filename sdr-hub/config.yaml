@@ -22,7 +22,27 @@ map:
 options:
   log_level: info
   mqtt_host: core-mosquitto
+  devices:
+    - enabled: true
+      device_path: /dev/ttyUSB0
+      baud_rate: 115200
+      device_type: rtl_sdr
+      frequency: 1090000000
+      sample_rate: 2048000
+      gain: auto
+      ppm_error: 0
 schema:
   log_level: list(debug|info|warning|error)
   mqtt_host: str?
+  devices:
+    - enabled: bool
+      device_path: str
+      baud_rate: int?
+      device_type: list(rtl_sdr|hackrf|airspy|sdrplay|other)
+      frequency: int?
+      sample_rate: int?
+      gain: str?
+      ppm_error: int?
 image: ghcr.io/infamousrusty/sdr-hub
+command:
+  - /init
