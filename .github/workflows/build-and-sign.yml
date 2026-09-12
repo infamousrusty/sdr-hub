@@ -14,10 +14,6 @@ name: Build and Sign SDR-Hub Images
       - master
       - devel
 
-  release:
-    types:
-      - published
-
   workflow_dispatch:
 
 run-name: >-
@@ -37,7 +33,6 @@ jobs:
       contents: read
       packages: write
       id-token: write
-      attestations: write
 
     steps:
       - name: Check out repository
@@ -75,20 +70,19 @@ jobs:
             {
               echo "version=master"
               echo "is_release=false"
-              echo "primary_tag=${IMAGE_GHCR}:latest"
+              echo "primary_tag=${IMAGE_GHCR}:master"
               echo "tags<<EOF"
-              echo "${IMAGE_GHCR}:latest"
               echo "${IMAGE_GHCR}:master"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
 
           else
             {
-              echo "version=${GITHUB_REF_NAME}"
+              echo "version=devel"
               echo "is_release=false"
-              echo "primary_tag=${IMAGE_GHCR}:${GITHUB_REF_NAME}"
+              echo "primary_tag=${IMAGE_GHCR}:devel"
               echo "tags<<EOF"
-              echo "${IMAGE_GHCR}:${GITHUB_REF_NAME}"
+              echo "${IMAGE_GHCR}:devel"
               echo "EOF"
             } >> "${GITHUB_OUTPUT}"
           fi
@@ -143,7 +137,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Confirm Buildx returned an image index digest
+      - name: Confirm Buildx returned image index digest
         id: digest
         if: github.event_name != 'pull_request'
         env:
@@ -158,7 +152,7 @@ jobs:
           fi
 
           if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-            echo "::error::Unexpected Buildx digest format: ${IMAGE_DIGEST}"
+            echo "::error::Unexpected Buildx digest: ${IMAGE_DIGEST}"
             exit 1
           fi
 
@@ -173,15 +167,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Inspecting published image index: ${IMAGE_REF}"
+          echo "Inspecting ${IMAGE_REF}"
           MANIFEST="$(docker buildx imagetools inspect "${IMAGE_REF}")"
 
           echo "${MANIFEST}"
-
           grep -q "linux/amd64" <<< "${MANIFEST}"
           grep -q "linux/arm64" <<< "${MANIFEST}"
 
-      - name: Verify primary image tag resolves to published digest
+      - name: Verify primary tag resolves to built image index
         if: github.event_name != 'pull_request'
         env:
           PRIMARY_TAG: ${{ steps.tags.outputs.primary_tag }}
@@ -197,11 +190,11 @@ jobs:
           )"
 
           echo "Primary tag: ${PRIMARY_TAG}"
-          echo "Tag digest:  ${TAG_DIGEST}"
-          echo "Build digest: ${EXPECTED_DIGEST}"
+          echo "Tag digest: ${TAG_DIGEST}"
+          echo "Built digest: ${EXPECTED_DIGEST}"
 
           if [[ "${TAG_DIGEST}" != "${EXPECTED_DIGEST}" ]]; then
-            echo "::error::Primary tag does not resolve to the image index just built."
+            echo "::error::The primary tag does not resolve to the image index built in this run."
             exit 1
           fi
 
@@ -209,7 +202,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Sign published GHCR image index
+      - name: Sign immutable GHCR image index
         if: github.event_name != 'pull_request'
         env:
           IMAGE_REF: ${{ steps.digest.outputs.image }}
@@ -217,7 +210,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Signing immutable image index: ${IMAGE_REF}"
+          echo "Signing ${IMAGE_REF}"
           cosign sign --yes "${IMAGE_REF}"
 
       - name: Verify Cosign signature
