@@ -1,16 +1,14 @@
-# sdr-hub/config.yaml
 name: SDR Hub
 version: "1.0.2"
 slug: sdr_hub
+description: Software Defined Radio hub for Home Assistant
+url: https://github.com/infamousrusty/sdr-hub
 
 arch:
   - amd64
   - aarch64
 
 init: false
-
-image: ghcr.io/infamousrusty/sdr-hub
-
 startup: services
 
 hassio_api: true
@@ -36,6 +34,7 @@ options:
 
 schema:
   log_level: list(debug|info|warning|error)
+
   mqtt:
     enabled: bool
     host: str
@@ -43,6 +42,7 @@ schema:
     username: str?
     password: password?
     base_topic: str
+
   radios:
     - id: str
       enabled: bool
@@ -57,4 +57,4 @@ schema:
       ppm: int?
       extra_args: str?
 
-image: ghcr.io/infamousrusty/{arch}-sdr-hub
+image: ghcr.io/infamousrusty/sdr-hub
