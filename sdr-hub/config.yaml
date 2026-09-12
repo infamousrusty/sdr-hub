@@ -8,17 +8,14 @@ arch:
   - amd64
 init: false
 startup: services
-boot: auto
 hassio_api: true
 homeassistant_api: true
-host_network: false
 ingress: true
 ingress_port: 8080
 panel_icon: mdi:radio-tower
 usb: true
 uart: true
 devices: []
-mqtt: true
 map:
   - app_config:rw
   - share:rw
