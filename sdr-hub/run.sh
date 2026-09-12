@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[sdr-hub-haos] Starting SDR-Hub Home Assistant add-on wrapper"
+echo "[sdr-hub] Starting SDR-Hub Home Assistant add-on"
 
 # Export add-on options as environment variables where supported
 if [ -f /data/options.json ]; then
@@ -12,11 +12,5 @@ if [ -f /data/options.json ]; then
   fi
 fi
 
-# Delegate to the wrapped SDR-Hub image entrypoint
-if [ -x /entrypoint.sh ]; then
-  exec /entrypoint.sh "$@"
-elif [ -x /usr/local/bin/entrypoint.sh ]; then
-  exec /usr/local/bin/entrypoint.sh "$@"
-else
-  exec /app/entrypoint.sh "$@"
-fi
+# Run the main SDR-Hub entrypoint
+exec /sdr-hub/entrypoint/entrypoint.sh "$@"
