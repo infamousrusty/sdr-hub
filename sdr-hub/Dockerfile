@@ -1,28 +1,22 @@
-# Home Assistant Add-on: SDR-Hub
-# Self-contained build (no external image dependency)
+FROM debian:bookworm-slim AS base
 
-ARG BUILD_FROM
-FROM ${BUILD_FROM:-alpine:latest}
-
-# Install runtime dependencies (Alpine uses apk, not apt-get)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    jq \
     ca-certificates \
-    curl \
-    jq
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy add-on files
-COPY entrypoint /sdr-hub/entrypoint
-COPY config /sdr-hub/config
-COPY scripts /sdr-hub/scripts
+RUN useradd -r -s /bin/false sdrhub || true
 
-WORKDIR /sdr-hub
+WORKDIR /app
 
-# Ensure scripts are executable
-RUN chmod +x /sdr-hub/entrypoint/entrypoint.sh \
-    /sdr-hub/entrypoint/entrypoint_run.sh \
-    /sdr-hub/scripts/start.sh
+COPY sdr-hub/run.sh /usr/local/bin/sdr-hub-run
+COPY sdr-hub/entrypoint/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-EXPOSE 8080
+RUN chmod 0755 /usr/local/bin/sdr-hub-run /usr/local/bin/entrypoint.sh \
+    && sed -i 's/\r$//' /usr/local/bin/sdr-hub-run /usr/local/bin/entrypoint.sh
 
-CMD ["/sdr-hub/entrypoint/entrypoint.sh"]
+USER sdrhub
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/sdr-hub-run"]

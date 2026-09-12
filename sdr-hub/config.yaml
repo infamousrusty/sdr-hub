@@ -1,46 +1,74 @@
-name: SDR-Hub
-version: "1.0.0"
+name: SDR Hub
+version: 1.0.1
 slug: sdr_hub
-description: Software Defined Radio hub with USB passthrough, Ingress UI and MQTT integration for Home Assistant
-url: https://github.com/infamousrusty/sdr-hub/tree/master
-arch:
-  - aarch64
+description: Multi-backend SDR receiver hub for Home Assistant
+url: https://github.com/infamousrusty/sdr-hub
+architectures:
   - amd64
-init: false
-startup: services
+  - aarch64
 hassio_api: true
-homeassistant_api: true
-ingress: true
-ingress_port: 8080
-panel_icon: mdi:radio-tower
-usb: true
-uart: true
-devices: []
-map:
-  - app_config:rw
-  - share:rw
+hassio_role: default
+init: false
+image: ghcr.io/infamousrusty/sdr-hub
 options:
   log_level: info
-  mqtt_host: core-mosquitto
-  devices:
-    - enabled: true
-      device_path: /dev/ttyUSB0
-      baud_rate: 115200
-      device_type: rtl_sdr
-      frequency: 1090000000
-      sample_rate: 2048000
+  mqtt:
+    enabled: true
+    host: core-mosquitto
+    port: 1883
+    username: ""
+    password: ""
+    base_topic: sdr_hub
+  radios:
+    - id: adsb_rtl
+      enabled: true
+      backend: rtl_sdr
+      selector: "00000001"
+      frequency_hz: 1090000000
+      sample_rate_hz: 2048000
       gain: auto
-      ppm_error: 0
+      ppm: 0
+      extra_args: ""
+    - id: serial_receiver
+      enabled: false
+      backend: serial
+      device: /dev/serial/by-id/usb-REPLACE_WITH_STABLE_DEVICE_ID
+      baud_rate: 115200
+      protocol: custom
+      extra_args: ""
 schema:
-  log_level: list(debug|info|warning|error)
-  mqtt_host: str?
-  devices:
-    - enabled: bool
-      device_path: str
+  log_level: list(info|debug|warning|error)
+  mqtt:
+    enabled: bool
+    host: str
+    port: port
+    username: str
+    password: str
+    base_topic: str
+  radios:
+    - id: str
+      enabled: bool
+      backend: list(rtl_sdr|hackrf|airspy|sdrplay|serial|other)
+      selector: str?
+      device: str?
       baud_rate: int?
-      device_type: list(rtl_sdr|hackrf|airspy|sdrplay|other)
-      frequency: int?
-      sample_rate: int?
+      protocol: str?
+      frequency_hz: int?
+      sample_rate_hz: int?
       gain: str?
-      ppm_error: int?
-image: ghcr.io/infamousrusty/sdr-hub:latest
+      ppm: int?
+      extra_args: str?
+map:
+  - /dev:/dev
+  - /run/udev:/run/udev
+privileged:
+  - SYS_NICE
+devices:
+  - /dev/serial/by-id
+  - /dev/bus/usb
+startup: services
+boot: manual
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:radio
+homeassistant_api: true
