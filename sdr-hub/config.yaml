@@ -2,7 +2,7 @@ name: SDR-Hub
 version: "1.0.0"
 slug: sdr_hub
 description: Software Defined Radio hub with USB passthrough, Ingress UI and MQTT integration for Home Assistant
-url: https://github.com/infamousrusty/sdr-hub/tree/haos-addon
+url: https://github.com/infamousrusty/sdr-hub/tree/master
 arch:
   - aarch64
   - amd64
