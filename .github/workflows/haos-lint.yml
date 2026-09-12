@@ -1,0 +1,21 @@
+name: HAOS Add-on Lint
+
+on:
+  push:
+    branches: [haos-addon]
+  pull_request:
+    branches: [haos-addon]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run add-on linter
+        uses: frenck/action-addon-linter@v2
+        with:
+          path: "./sdr-hub"

@@ -1,0 +1,28 @@
+name: SDR-Hub
+version: "1.0.0"
+slug: sdr_hub
+description: Software Defined Radio hub with USB passthrough, Ingress UI and MQTT integration for Home Assistant
+url: https://github.com/infamousrusty/sdr-hub/tree/haos-addon
+arch:
+  - aarch64
+  - amd64
+init: false
+startup: services
+hassio_api: true
+homeassistant_api: true
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:radio-tower
+usb: true
+uart: true
+devices: []
+map:
+  - app_config:rw
+  - share:rw
+options:
+  log_level: info
+  mqtt_host: core-mosquitto
+schema:
+  log_level: list(debug|info|warning|error)
+  mqtt_host: str?
+image: ghcr.io/infamousrusty/{arch}-sdr-hub
