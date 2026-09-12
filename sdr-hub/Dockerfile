@@ -2,15 +2,14 @@
 # Self-contained build (no external image dependency)
 
 ARG BUILD_FROM
-FROM ${BUILD_FROM:-debian:bullseye-slim}
+FROM ${BUILD_FROM:-alpine:latest}
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install runtime dependencies (Alpine uses apk, not apt-get)
+RUN apk add --no-cache \
     bash \
     ca-certificates \
     curl \
-    jq \
-    && rm -rf /var/lib/apt/lists/*
+    jq
 
 # Copy add-on files
 COPY entrypoint /sdr-hub/entrypoint
